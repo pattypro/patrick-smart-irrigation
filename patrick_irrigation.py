@@ -1,3 +1,4 @@
+
 import streamlit as st
 import pandas as pd
 import numpy as np
@@ -6,26 +7,23 @@ import gspread, json, math
 from oauth2client.service_account import ServiceAccountCredentials
 from datetime import datetime, timedelta, date
 
-# ---------------- UI THEME ----------------
-st.set_page_config(page_title="Patrick Smart Irrigation — v3.0", layout="wide")
+st.set_page_config(page_title="Patrick Smart Irrigation — v3.1", layout="wide")
 
-PRIMARY = "#0EA5E9"   # Tailwind sky-500
-ACCENT  = "#22C55E"   # Tailwind green-500
-WARN    = "#F59E0B"   # amber-500
-DANGER  = "#EF4444"   # red-500
-MUTED   = "#6B7280"   # gray-500
+PRIMARY = "#0EA5E9"
+ACCENT  = "#22C55E"
+WARN    = "#F59E0B"
+DANGER  = "#EF4444"
+MUTED   = "#6B7280"
 
 st.markdown(f"""
     <style>
     .block-container {{ padding-top: 1.5rem; }}
     h1, h2, h3 {{ color: #111827; }}
     .stButton>button {{ border-radius: 14px; padding: 0.5rem 1rem; font-weight: 600; }}
-    .metric-small span {{ font-size: 0.9rem !important; color:{MUTED}; }}
     .note {{ font-size: 0.9rem; color:{MUTED}; }}
     </style>
 """, unsafe_allow_html=True)
 
-# --------------- CONSTANTS ----------------
 SPREADSHEET_NAME = "Patrick_Irrigation_Log"
 WEATHER_SHEET = "Weather_ETo"
 CALIB_SHEET = "NDVI_Calibration"
@@ -39,12 +37,11 @@ PLOT_TECH = {
 }
 
 Kc_STAGE = {"initial": 0.55, "mid": 1.00, "late": 0.85}
-ROOT_DEPTH = {"initial": 0.15, "mid": 0.25, "late": 0.30}  # m
+ROOT_DEPTH = {"initial": 0.15, "mid": 0.25, "late": 0.30}
 DEFAULTS = {"FC": 30.0, "PWP": 10.0, "MAD": 0.20, "EFFICIENCY": 0.85, "PLOT_AREA_M2": 1.0}
 DEFAULT_LAT = -1.95
 DEFAULT_ALT = 1500.0
 
-# --------------- SHEET CONNECTION ----------------
 def connect_gsheet():
     scope = [
         "https://spreadsheets.google.com/feeds",
@@ -116,7 +113,7 @@ def ensure_sheet_structure(ss):
         for stg in ["initial","mid","late"]:
             ws_cal.append_row([stg, 0.0, 1.0, 0.03, 0.03, datetime.utcnow().isoformat()])
     if not ws_meta.get_all_records():
-        ws_meta.append_row(["app_version","3.0"])
+        ws_meta.append_row(["app_version","3.1"])
         ws_meta.append_row(["last_update", str(date.today())])
         ws_meta.append_row(["researcher","Patrick Habyarimana"])
 
@@ -129,7 +126,6 @@ def sheet_to_df(ws):
 def append_row(ws, dct, header_order):
     ws.append_row([dct.get(h,"") for h in header_order])
 
-# --------------- FAO-56 CORE ----------------
 def saturation_vapor_pressure(T):
     return 0.6108 * math.exp((17.27 * T) / (T + 237.3))
 
@@ -181,7 +177,6 @@ def eto_fao56_daily(Tmean, Tmax, Tmin, RHmean, u2, P_kPa, Ra, n_hours, lat_rad, 
     den = delta + gamma*(1+0.34*u2)
     return max(0.0, num/max(den,1e-6))
 
-# --------------- NDVI FUSION ----------------
 def fuse_ndvi(ndvi_rgn, ndvi_ocn, a=0.0, b=1.0, sigma_rgn=0.03, sigma_ocn=0.03, q_rgn=1.0, q_ocn=1.0, tau=0.10, ndvi7d_median=None):
     ndvi_ocn_rg = a + b*ndvi_ocn if ndvi_ocn is not None else None
     if ndvi_rgn is not None and ndvi_ocn is not None:
@@ -200,7 +195,6 @@ def fuse_ndvi(ndvi_rgn, ndvi_ocn, a=0.0, b=1.0, sigma_rgn=0.03, sigma_ocn=0.03, 
         return None
     return ndvi_fuse
 
-# --------------- SIDEBAR ----------------
 st.sidebar.header("Settings")
 lat = st.sidebar.number_input("Latitude (deg)", value=DEFAULT_LAT, step=0.01)
 alt = st.sidebar.number_input("Altitude (m)", value=float(DEFAULT_ALT), step=10.0)
@@ -210,10 +204,8 @@ MAD = st.sidebar.number_input("Management Allowable Depletion (0-1)", value=DEFA
 EFF = st.sidebar.number_input("Irrigation Efficiency (0-1)", value=DEFAULTS["EFFICIENCY"], step=0.05, min_value=0.5, max_value=1.0)
 AREA = st.sidebar.number_input("Plot Area (m²)", value=DEFAULTS["PLOT_AREA_M2"], step=0.1, min_value=0.1)
 plot_id = st.sidebar.selectbox("Plot", options=list(PLOT_TECH.keys()), format_func=lambda k: f"Plot {k} — {PLOT_TECH[k]}")
-
 st.sidebar.markdown(f"<div class='note'>Plot 1 is manual-only. Plots 2–4 use decision logic.</div>", unsafe_allow_html=True)
 
-# --------------- CONNECT ----------------
 try:
     client, ss = connect_gsheet()
     ws_main, ws_weather, ws_cal, ws_meta = ensure_sheet_structure(ss)
@@ -233,14 +225,11 @@ def load_calibration(ws_cal):
 
 calib = load_calibration(ws_cal) if connected else {"initial": (0.0,1.0,0.03,0.03), "mid": (0.0,1.0,0.03,0.03), "late": (0.0,1.0,0.03,0.03)}
 
-# --------------- TABS ----------------
 tabs = st.tabs(["Weather → ETo", "Daily Decision", "Analytics", "NDVI Harmonization"])
 
-# ----- TAB 1: Weather → ETo -----
 with tabs[0]:
     st.header("Weather → ETo (FAO-56)")
     st.caption("Upload daily CSV with columns like: 日, 気圧(hPa), 降水量(mm), 気温(℃), 湿度(％), 風速(m/s), 日照時間(h)")
-
     up = st.file_uploader("Upload weather CSV", type=["csv"])
     if up is not None:
         try:
@@ -317,7 +306,6 @@ with tabs[0]:
                 ax.set_ylabel("ETo (mm/day)")
                 ax.set_title("Daily ETo")
                 ax.grid(True, alpha=0.2)
-                # compact ticks
                 ax.tick_params(axis='x', labelrotation=0, labelsize=8)
                 ax.tick_params(axis='y', labelsize=8)
                 st.pyplot(fig)
@@ -331,12 +319,10 @@ with tabs[0]:
                         append_row(ws_weather, row, ["date","P_kPa","rain_mm","Tmean_C","Tmax_C","Tmin_C","RHmean","u2_ms","n_hours","ETo_mm"])
                 st.success("Weather_ETo sheet updated.")
 
-# ----- TAB 2: Daily Decision -----
 with tabs[1]:
     st.header(f"Daily decision — {PLOT_TECH[plot_id]}")
     st.caption("One decision per day. Plot 1 is manual-only. For Plots 2–4, the engine uses VWC, NDVI fusion, and ETo.")
 
-    # Auto-prefill yesterday's ETo/rain
     eto_yday_default, rain_yday_default, eto_next_default = 0.0, 0.0, 0.0
     if connected:
         try:
@@ -397,8 +383,18 @@ with tabs[1]:
         with c6:
             ndvi_ocn = st.number_input("NDVI_OCN (if measured)", value=0.0, step=0.01, min_value=0.0, max_value=1.0, disabled=(plot_id=="2"))
 
-        # Load calibration
+        # calibration & fusion
+        def load_cal(ws_cal):
+            df = sheet_to_df(ws_cal)
+            base = {"initial": (0.0,1.0,0.03,0.03), "mid": (0.0,1.0,0.03,0.03), "late": (0.0,1.0,0.03,0.03)}
+            if not df.empty and "stage" in df.columns:
+                for _,r in df.iterrows():
+                    base[str(r["stage"]).strip().lower()] = (float(r.get("a",0.0)), float(r.get("b",1.0)), float(r.get("sigma_rgn",0.03)), float(r.get("sigma_ocn",0.03)))
+            return base
+
+        calib = load_cal(ws_cal) if connected else calib
         a,b,sr,so = calib.get(stage, (0.0,1.0,0.03,0.03))
+
         ndvi7 = None
         if connected:
             try:
@@ -413,25 +409,23 @@ with tabs[1]:
             ndvi_final = fuse_ndvi(ndvi_rgn if ndvi_rgn>0 else None, ndvi_ocn if ndvi_ocn>0 else None, a=a, b=b, sigma_rgn=sr, sigma_ocn=so, ndvi7d_median=ndvi7)
             st.markdown(f"Unified NDVI (nVI): **{ndvi_final:.3f}**" if ndvi_final is not None else "No NDVI today.")
 
-        kc = kc_stage
+        kc = Kc_STAGE[stage]
         if ndvi_final is not None:
             kc_ndvi = float(np.clip(0.30 + 0.70*ndvi_final, 0.30, 1.10))
-            kc = 0.7*kc_stage + 0.3*kc_ndvi
+            kc = 0.7*Kc_STAGE[stage] + 0.3*kc_ndvi
 
         etc_yday = eto_yday * kc
         etc_next = eto_next * kc
 
-        TAW = (FC - PWP) * zr * 10.0
-        RAW = MAD * TAW
-        trigger_vwc = FC - MAD*(FC - PWP)
+        TAW = (DEFAULTS["FC"] - DEFAULTS["PWP"]) * ROOT_DEPTH[stage] * 10.0
+        RAW = DEFAULTS["MAD"] * TAW
+        trigger_vwc = DEFAULTS["FC"] - DEFAULTS["MAD"]*(DEFAULTS["FC"] - DEFAULTS["PWP"])
 
-        # Compact metrics
         m1, m2, m3, m4 = st.columns(4)
-        m1.metric("Used Kc", f"{kc:.2f}", help="Fusion: 70% stage Kc + 30% NDVI-based Kc if NDVI provided")
-        m2.metric("TAW (mm)", f"{TAW:.1f}", help="Total Available Water")
-        m3.metric("RAW (mm)", f"{RAW:.1f}", help="Readily Available Water (MAD×TAW)")
-        m4.metric("Trigger VWC (%)", f"{trigger_vwc:.1f}", help="FC − MAD×(FC−PWP)")
-
+        m1.metric("Used Kc", f"{kc:.2f}")
+        m2.metric("TAW (mm)", f"{TAW:.1f}")
+        m3.metric("RAW (mm)", f"{RAW:.1f}")
+        m4.metric("Trigger VWC (%)", f"{trigger_vwc:.1f}")
         st.markdown(f"<div class='note'>ETc = ETo × Kc.  Suggestion = (Depletion_start + ETc_next − EffectiveRain_next) × Area.</div>", unsafe_allow_html=True)
 
         depletion_prev = st.number_input("Depletion_prev at start of day (mm)", value=RAW/2.0, step=0.5)
@@ -440,25 +434,36 @@ with tabs[1]:
         depletion_start = max(0.0, depletion_prev + etc_yday - eff_rain_y)
         need_mm = max(0.0, depletion_start + etc_next - eff_rain_next)
         need_mm = min(need_mm, TAW)
-        sugg_liters = need_mm * AREA
+        sugg_liters = need_mm * DEFAULTS["PLOT_AREA_M2"]
 
-        # Decision logic
-        if plot_id == "2":  # Sensor + Weather
-            decision = "Irrigate" if (vwc_predawn <= trigger_vwc) or (depletion_start >= RAW) else "Skip"
-        elif plot_id == "3":  # NDVI + Weather
+        # Decision logic consistency fix
+        rain_skip = forecast_rain >= 10
+        if plot_id == "2":
+            trigger = (vwc_predawn <= trigger_vwc) or (depletion_start >= RAW)
+        elif plot_id == "3":
             guard = False
             if ndvi_final is not None and ndvi7 is not None:
-                guard = (ndvi_final < 0.95*ndvi7) and (abs(vwc_predawn - trigger_vwc) <= 3.0)
-            decision = "Irrigate" if guard or (depletion_start >= RAW) else "Skip"
-        else:  # Plot 4
+                guard = (ndvi_final < 0.95*ndvi7)
+            trigger = guard or (depletion_start >= RAW)
+        else:
             guard = False
             if ndvi_final is not None and ndvi7 is not None:
-                guard = (ndvi_final < 0.95*ndvi7) and (abs(vwc_predawn - trigger_vwc) <= 3.0)
-            decision = "Irrigate" if guard or (vwc_predawn <= trigger_vwc) or (depletion_start >= RAW) else "Skip"
-        if forecast_rain >= 10:
+                guard = (ndvi_final < 0.95*ndvi7)
+            trigger = guard or (vwc_predawn <= trigger_vwc) or (depletion_start >= RAW)
+
+        if rain_skip:
             decision = "Skip (rain forecast)"
+        elif sugg_liters < 0.5:
+            decision = "Skip (no irrigation needed)"
+        elif trigger:
+            decision = "Irrigate"
+        else:
+            decision = "Skip"
 
-        st.success(f"Decision: **{decision}** — Recommended **{sugg_liters:.2f} L** per plot")
+        if "Skip" not in decision:
+            st.success(f"Decision: **{decision}** — Apply **{sugg_liters:.2f} L** per plot")
+        else:
+            st.warning(f"Decision: **{decision}** — Suggested water = {sugg_liters:.2f} L (not applied)")
 
         meter_start = st.number_input("Meter Start (L)", value=0.0, step=0.1)
         meter_end = st.number_input("Meter End (L)", value=0.0, step=0.1)
@@ -489,7 +494,6 @@ with tabs[1]:
             append_row(ws_main, row, headers)
             st.success("Saved to Google Sheet ✅")
 
-# ----- TAB 3: Analytics -----
 with tabs[2]:
     st.header("Analytics")
     if connected:
@@ -497,7 +501,6 @@ with tabs[2]:
         if df.empty:
             st.info("No logs yet.")
         else:
-            # Normalize
             if "timestamp" in df.columns:
                 df["timestamp"] = pd.to_datetime(df["timestamp"], errors="coerce")
             for c in ["vwc","nvi","applied_liters","eto","kc","etc","suggested_liters"]:
@@ -510,19 +513,16 @@ with tabs[2]:
             fplot = st.selectbox("Filter by plot", options=["All","1","2","3","4"], index=0, format_func=lambda x: "All Plots" if x=="All" else f"Plot {x}")
             dff = df if fplot=="All" else df[df["plot_id"].str.contains(fplot)]
 
-            # 1) VWC (only Plots 2 & 4)
             dff_vwc = dff[(dff["plot_id"].isin(["Plot 2","Plot 4"])) if "plot_id" in dff.columns else []]
             if not dff_vwc.empty and dff_vwc["vwc"].notna().any():
                 fig, ax = plt.subplots()
                 ax.plot(dff_vwc["timestamp"], dff_vwc["vwc"], marker="o")
                 ax.axhline(DEFAULTS["FC"] - DEFAULTS["MAD"]*(DEFAULTS["FC"]-DEFAULTS["PWP"]), linestyle="--", color="#999", label="Trigger VWC")
                 ax.set_ylabel("VWC (%)"); ax.set_title("Predawn Soil Moisture (Plots 2 & 4)")
-                ax.legend()
-                ax.grid(True, alpha=0.2)
+                ax.legend(); ax.grid(True, alpha=0.2)
                 ax.tick_params(axis='x', labelsize=8); ax.tick_params(axis='y', labelsize=8)
                 st.pyplot(fig)
 
-            # 2) NDVI (Plots 3 & 4)
             dff_ndvi = dff[(dff["plot_id"].isin(["Plot 3","Plot 4"])) if "plot_id" in dff.columns else []]
             if not dff_ndvi.empty and dff_ndvi["nvi"].notna().any():
                 fig, ax = plt.subplots()
@@ -532,7 +532,6 @@ with tabs[2]:
                 ax.tick_params(axis='x', labelsize=8); ax.tick_params(axis='y', labelsize=8)
                 st.pyplot(fig)
 
-            # 3) Applied water — Plot 1 only (as requested)
             dff_p1 = dff[dff["plot_id"]=="Plot 1"] if "plot_id" in dff.columns else pd.DataFrame()
             if not dff_p1.empty and dff_p1["applied_liters"].notna().any():
                 fig, ax = plt.subplots()
@@ -542,8 +541,6 @@ with tabs[2]:
                 ax.tick_params(axis='x', labelsize=8); ax.tick_params(axis='y', labelsize=8)
                 st.pyplot(fig)
 
-            # 4) Decision logic overlay chart (formula view)
-            # Shows ETc_next, Depletion_start, EffectiveRain_next and Suggested liters timeline
             if dff["suggested_liters"].notna().any():
                 fig, ax = plt.subplots()
                 ax.plot(dff["timestamp"], dff["suggested_liters"].fillna(0), marker="o", label="Suggested liters")
@@ -561,7 +558,6 @@ with tabs[2]:
     else:
         st.info("Connect Google Sheets to view analytics.")
 
-# ----- TAB 4: NDVI Harmonization -----
 with tabs[3]:
     st.header("NDVI Harmonization (OCN→RGN)")
     if connected:
