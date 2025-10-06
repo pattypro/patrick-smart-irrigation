@@ -42,11 +42,18 @@ def connect_gsheet():
     scope = ["https://spreadsheets.google.com/feeds",
              "https://www.googleapis.com/auth/drive"]
     # read JSON string from secrets and parse
+    
+    # ✅ Read JSON string from secrets and ensure it's a dict
     try:
-        creds_dict = json.loads(st.secrets["GCP_SERVICE_ACCOUNT_JSON"])
+        raw_secret = st.secrets["GCP_SERVICE_ACCOUNT_JSON"]
+        if isinstance(raw_secret, str):
+            creds_dict = json.loads(raw_secret)
+        else:
+            creds_dict = dict(raw_secret)  # Convert Streamlit AttrDict to regular dict
     except Exception as e:
-        st.error("Google credentials not found in Streamlit secrets. Add GCP_SERVICE_ACCOUNT_JSON.")
+        st.error(f"Google credentials not found or invalid: {e}")
         raise
+
     creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, scope)
     client = gspread.authorize(creds)
     sheet = client.open(SHEET_NAME).sheet1
