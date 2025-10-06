@@ -3,3 +3,4 @@ pandas
 matplotlib
 gspread
 oauth2client
+numpy
