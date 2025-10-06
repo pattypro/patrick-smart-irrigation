@@ -1,6 +1,4 @@
 streamlit
-pandas
-numpy
-matplotlib
 gspread
 oauth2client
+pandas

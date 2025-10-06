@@ -1,20 +1,15 @@
-# 🌱 Patrick Smart Irrigation Dashboard — v2.2
+# 🌿 Patrick Smart Irrigation Dashboard v2.3
 
-**This version restores your full dashboard** and keeps the automatic Google Sheet structure update at startup.
+This version connects directly to **your own Google Drive sheet** for storage.
 
-## What’s in v2.2
-- ✅ Auto-creates/updates sheets & headers (Weather_ETo, NDVI_Calibration, App_Metadata)
-- ✅ Plot logic: P1 baseline; P2 Sensor+Weather; P3 NDVI+Weather; P4 Sensor+NDVI+Weather
-- ✅ Weather CSV upload (Japanese headers OK) → FAO-56 ETo
-- ✅ Auto-prefill yesterday’s ETo from Weather_ETo
-- ✅ NDVI fusion (RGN & OCN with OCN→RGN linear map and noise-aware weighting)
-- ✅ Analytics with per-plot filter
+## 🚀 How to Use
+1. Open your Google Sheet (e.g., `Patrick_Irrigation_Log`).
+2. Share it with this email:  
+   **patrick-irrigation-sa@patrick-irrigation-473904.iam.gserviceaccount.com**
+3. Give it **Editor** access.
+4. In your Streamlit app, keep your current service account JSON in secrets.
 
-## Deploy
-1) Upload files to GitHub.
-2) Streamlit Cloud → main file: `patrick_irrigation.py`
-3) Secrets → add your service account JSON:
+Optionally, to target a specific sheet, add this line in your secrets:
+```toml
+SHEET_ID = "your_google_sheet_id_here"
 ```
-GCP_SERVICE_ACCOUNT_JSON = """{ ... }"""
-```
-4) Share Google Sheet named **Patrick_Irrigation_Log** with your service account (Editor).
