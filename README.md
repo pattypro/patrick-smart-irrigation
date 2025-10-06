@@ -1,15 +1,20 @@
-# 🌿 Patrick Smart Irrigation Dashboard v2.3
+# 🌿 Patrick Smart Irrigation Dashboard — v3.0 (Production)
 
-This version connects directly to **your own Google Drive sheet** for storage.
+**Highlights**
+- Uses YOUR Google Drive Sheet (no service account storage).
+- Auto-creates tabs & headers; preserves your old data.
+- Weather → ETo (FAO-56) from Japanese CSV.
+- Plot-aware daily decisions (Plot 1 = manual only).
+- NDVI harmonization (RGN+OCN) and fusion.
+- Analytics with clean design, compact ticks, and annotated logic overlays.
 
-## 🚀 How to Use
-1. Open your Google Sheet (e.g., `Patrick_Irrigation_Log`).
-2. Share it with this email:  
-   **patrick-irrigation-sa@patrick-irrigation-473904.iam.gserviceaccount.com**
-3. Give it **Editor** access.
-4. In your Streamlit app, keep your current service account JSON in secrets.
-
-Optionally, to target a specific sheet, add this line in your secrets:
-```toml
+## Deploy
+1) Upload to GitHub (replace prior files).
+2) Streamlit Cloud → main file: `patrick_irrigation.py`
+3) Secrets:
+```
+GCP_SERVICE_ACCOUNT_JSON = """{ ... }"""
+# Optional but recommended for precision:
 SHEET_ID = "your_google_sheet_id_here"
 ```
+4) Share your sheet with: `patrick-irrigation-sa@patrick-irrigation-473904.iam.gserviceaccount.com` (Editor).
