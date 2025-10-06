@@ -1,24 +1,29 @@
-# 🌱 Patrick Smart Irrigation Dashboard — v2
+# Patrick Smart Irrigation Dashboard v2.1
 
-**New in v2**
-- Plot-aware logic:
-  - Plot 1 = Baseline (manual only)
-  - Plot 2 = Sensor + Weather
-  - Plot 3 = NDVI + Weather
-  - Plot 4 = Sensor + NDVI + Weather
-- Auto-prefill **yesterday’s ETo** and rain from `Weather_ETo`.
-- Unified NDVI (OCN→RGN) with per-stage coefficients; used automatically.
-- Once-a-day decision with TAW/RAW/Trigger VWC and recommended liters.
+This Streamlit app automates precision irrigation scheduling using real-time sensor, NDVI, and weather data.
 
-## Deploy
-1) Upload `patrick_irrigation.py`, `requirements.txt`, `README.md` to GitHub.
-2) Streamlit Cloud → Main file: `patrick_irrigation.py`
-3) Secrets (Settings → Secrets):
-```
-GCP_SERVICE_ACCOUNT_JSON = """{ ...your service account JSON on one line... }"""
-```
-4) Share your Google Sheet named **Patrick_Irrigation_Log** with the service account (Editor).
+## 🌟 What's New in v2.1
+- Auto-updates Google Sheets (creates missing tabs & headers)
+- Detects and creates Weather_ETo, NDVI_Calibration, App_Metadata sheets automatically
+- Keeps your old data safe in Patrick_Irrigation_Log
+- Seeds initial NDVI calibration rows (initial/mid/late)
+- Adds default metadata fields (version, date, researcher)
 
-## Sheets auto-created
-- `Weather_ETo`
-- `NDVI_Calibration`
+## 📂 Folder Contents
+- `patrick_irrigation.py` — main Streamlit app
+- `requirements.txt` — dependencies
+- `README.md` — this file
+
+## 🚀 Deployment Steps
+1. Upload to GitHub (replace previous files)
+2. In Streamlit Cloud:
+   - Main file: `patrick_irrigation.py`
+   - Add secret:  
+     ```
+     GCP_SERVICE_ACCOUNT_JSON = """{...}"""
+     ```
+3. Ensure your Google Sheet is named **Patrick_Irrigation_Log**
+4. Share the sheet with your service account (Editor)
+
+## 👨‍🔬 Author
+Patrick Habyarimana — Smart Irrigation Research, 2025
