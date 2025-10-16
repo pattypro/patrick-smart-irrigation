@@ -7,6 +7,26 @@ from oauth2client.service_account import ServiceAccountCredentials
 from datetime import datetime, timedelta, date
 from pathlib import Path
 
+# ======= Streamlit cache fix for Google Sheet API =======
+import streamlit as st
+from googleapiclient.errors import HttpError
+import time
+
+@st.cache_data(ttl=60)
+def get_sheet_data(sheet):
+    try:
+        return sheet.get_all_records()
+    except HttpError as e:
+        if e.resp.status == 429:
+            st.warning("⚠️ Too many Google Sheet requests. Retrying after 30 seconds...")
+            time.sleep(30)
+            return sheet.get_all_records()
+        else:
+            raise e
+# ========================================================
+
+
+
 st.set_page_config(page_title="Patrick Smart Irrigation — v3.4", layout="wide")
 PRIMARY = "#0EA5E9"; ACCENT="#22C55E"; WARN="#F59E0B"; MUTED="#6B7280"
 st.markdown(f"""
