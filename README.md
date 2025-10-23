@@ -1,3 +1,6 @@
-# Patrick Smart Irrigation - v3.9 (Auto-Compute + Transparent Formulas)
-Clean UI (no banner). T1 has no CSV uploaders. T2–T4 show formulas and inputs.
-Auto-save all inputs/outputs to MAIN; save Weather_Raw/Sensor_Raw; compute Weather_ETo.
+# Patrick Smart Irrigation - v4.0
+- Auto MAD (0.25 initial, 0.35 mid, 0.45 late)
+- Editable flow rate (L/min) for hose with flow meter
+- Irrigation time (seconds) auto-calculated and saved
+- Full Google Sheet logging (Patrick_Irrigation_Log_v4) with all tabs
+- Direct Google Sheet access link in sidebar
