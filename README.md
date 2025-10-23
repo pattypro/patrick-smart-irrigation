@@ -1,15 +1,21 @@
 
-# Patrick Smart Irrigation - v4.0 (Flow-Integrated & Stage-Aware)
+# Patrick Smart Irrigation - v4.1 (Cached & Quota-Safe)
 
-- Auto MAD by stage: 0.25 (initial), 0.35 (mid), 0.45 (late)
-- Editable Flow rate (L/min) — measure each run (0 = not set)
-- Irrigation time computed in seconds (rounded) and saved
-- T1: Manual (no CSV); T2–T4: Weather/Sensor uploads with transparent formulas
-- All tabs auto-created in Google Sheet: MAIN, Weather_Raw, Sensor_Raw, Weather_ETo, NDVI_Calibration, App_Metadata
-- Sidebar button to open your Google Sheet
+## What's new
+- **Cached Google Sheet reads** using `st.cache_data(ttl=300)` (refresh every 5 min)
+- **Retry-safe writes** with automatic error handling
+- **All v4.0 features preserved**
+- Prevents 429 "quota exceeded" errors from Google Sheets
 
-## Secrets
+## Setup
+Add this to your `.streamlit/secrets.toml`:
 ```toml
-GCP_SERVICE_ACCOUNT_JSON = """{ your service account JSON }"""
+GCP_SERVICE_ACCOUNT_JSON = """{ your Google service account JSON here }"""
 SHEET_ID = "17lGpO4UeBDHt_NXMVoi4xO8EAyZMUmPBcWE6hCsvWvo"
+```
+
+## Run
+```bash
+pip install -r requirements.txt
+streamlit run patrick_irrigation.py
 ```
