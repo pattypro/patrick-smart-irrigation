@@ -1,17 +1,19 @@
-# Patrick Smart Irrigation - v3.5
+# Patrick Smart Irrigation - v3.7 (Auto)
 
-Dynamic treatments (T1-T4), spinach crop modeling, NDVI-integrated irrigation, sensor & weather CSV ingestion, and full Google Sheets logging.
+Two tabs: Treatment Dashboard and Analytics. Upload **sensor CSV** and **weather CSV** directly in the Treatment tab.
+The app computes **ETo**, harmonizes **NDVI**, makes decisions, **calculates liters**, and logs to **Google Sheets**.
+No CSVs are saved by the app (processed in-memory).
 
-## Google Sheets secrets
-
-Add to your Streamlit secrets:
+## Streamlit secrets
 ```
-GCP_SERVICE_ACCOUNT_JSON = "<your service account JSON>"
-SHEET_ID = "<optional - else it opens by name 'Patrick_Irrigation_Log'>"
+GCP_SERVICE_ACCOUNT_JSON = "<service account JSON>"
+SHEET_ID = "<optional; else open by name 'Patrick_Irrigation_Log'>"
 ```
 
 ## Run
 ```
 pip install -r requirements.txt
-streamlit run patrick_irrigation_v3_5.py
+streamlit run patrick_irrigation.py
 ```
+
+**Note:** Plot area is fixed to 1.0 m² → 1 mm = 1 L.
