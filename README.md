@@ -1,19 +1,9 @@
-# Patrick Smart Irrigation - v3.7 (Auto)
+# Patrick Smart Irrigation - v3.8 (Auto-Compute)
 
-Two tabs: Treatment Dashboard and Analytics. Upload **sensor CSV** and **weather CSV** directly in the Treatment tab.
-The app computes **ETo**, harmonizes **NDVI**, makes decisions, **calculates liters**, and logs to **Google Sheets**.
-No CSVs are saved by the app (processed in-memory).
-
-## Streamlit secrets
-```
-GCP_SERVICE_ACCOUNT_JSON = "<service account JSON>"
-SHEET_ID = "<optional; else open by name 'Patrick_Irrigation_Log'>"
-```
-
-## Run
-```
-pip install -r requirements.txt
-streamlit run patrick_irrigation.py
-```
-
-**Note:** Plot area is fixed to 1.0 m² → 1 mm = 1 L.
+- Full auto-compute for T2-T4 (only rain forecast and NDVI are manual inputs)
+- ETo calculated from uploaded hourly weather CSV
+- Predawn VWC calculated from uploaded sensor CSV (4-6 AM)
+- NDVI fusion for T3/T4
+- Raw CSVs saved to Google Sheets (Weather_Raw, Sensor_Raw)
+- All calculated fields saved to MAIN
+- Optional header image upload in the sidebar

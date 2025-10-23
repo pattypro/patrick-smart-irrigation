@@ -1,34 +1,45 @@
+
 # -*- coding: utf-8 -*-
 import streamlit as st
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
-import gspread, json, math
+import gspread, json, math, io
 from oauth2client.service_account import ServiceAccountCredentials
 from datetime import datetime, timedelta, date
 from pathlib import Path
 
-st.set_page_config(page_title="Patrick Smart Irrigation - v3.7 (Auto)", layout="wide")
+st.set_page_config(page_title="Patrick Smart Irrigation - v3.8 (Auto-Compute)", layout="wide")
 PRIMARY = "#0EA5E9"; ACCENT="#22C55E"; WARN="#F59E0B"; MUTED="#6B7280"
 st.markdown(f"""
 <style>
-.block-container {{ padding-top: 0.8rem; }}
-h1, h2, h3 {{ color: #0f172a; margin-top: .5rem; }}
+.block-container {{ padding-top: 0.6rem; }}
+h1, h2, h3 {{ color: #0f172a; margin-top: .4rem; }}
 .info-box {{ border-left: 6px solid {PRIMARY}; padding:.6rem .8rem; background:#f0f9ff; border-radius:8px; margin:.4rem 0 1rem 0; }}
 .small-note {{ font-size:.92rem; color:{MUTED}; }}
 .stButton>button {{ border-radius: 12px; padding:.45rem .9rem; font-weight:600; }}
 </style>
 """, unsafe_allow_html=True)
 
-banner = Path("assets/header_smart_irrigation.png")
-if banner.exists():
-    st.image(str(banner), use_column_width=True)
-st.title("Patrick Smart Irrigation - v3.7 (Auto)")
+# Optional header image
+st.sidebar.header("Optional")
+custom_img = st.sidebar.file_uploader("Upload a header image (PNG/JPG)", type=["png","jpg","jpeg"], key="hdr")
+if custom_img:
+    st.image(custom_img, use_column_width=True)
+else:
+    if Path("assets/header_smart_irrigation.png").exists():
+        st.image("assets/header_smart_irrigation.png", use_column_width=True)
+    elif Path("header_smart_irrigation.png").exists():
+        st.image("header_smart_irrigation.png", use_column_width=True)
+
+st.title("Patrick Smart Irrigation - v3.8 (Auto-Compute)")
 
 SPREADSHEET_NAME = "Patrick_Irrigation_Log"
 WEATHER_SHEET = "Weather_ETo"
 CALIB_SHEET="NDVI_Calibration"
 META_SHEET="App_Metadata"
+SENSOR_RAW="Sensor_Raw"
+WEATHER_RAW="Weather_Raw"
 
 CROP_PARAMS = {
     "Spinach": {"Kc_ini":0.70, "Kc_mid":1.05, "Kc_end":0.95, "root_depth":0.20, "base_ETc_adj":1.10},
@@ -74,6 +85,8 @@ REQUIRED_SHEETS={
     WEATHER_SHEET:["date","ETo_mm","rain_mm"],
     CALIB_SHEET:["stage","a","b","sigma_rgn","sigma_ocn","updated_at"],
     META_SHEET:["key","value"],
+    SENSOR_RAW:["timestamp","vwc"],
+    WEATHER_RAW:["timestamp","Tair_C","RH","wind_ms","solar_MJ_m2","P_kPa","rain_mm"]
 }
 
 def ensure_sheet_structure(ss):
@@ -86,7 +99,7 @@ def ensure_sheet_structure(ss):
     def ensure_tab(title, headers):
         try: ws = ss.worksheet(title)
         except gspread.exceptions.WorksheetNotFound:
-            ws = ss.add_worksheet(title=title, rows=3000, cols=max(10,len(headers))); ws.append_row(headers); return ws
+            ws = ss.add_worksheet(title=title, rows=5000, cols=max(10,len(headers))); ws.append_row(headers); return ws
         cur = ws.row_values(1)
         if not cur: ws.append_row(headers)
         else:
@@ -96,12 +109,14 @@ def ensure_sheet_structure(ss):
     ws_weather=ensure_tab(WEATHER_SHEET, REQUIRED_SHEETS[WEATHER_SHEET])
     ws_cal=ensure_tab(CALIB_SHEET, REQUIRED_SHEETS[CALIB_SHEET])
     ws_meta=ensure_tab(META_SHEET, REQUIRED_SHEETS[META_SHEET])
+    ws_sraw=ensure_tab(SENSOR_RAW, REQUIRED_SHEETS[SENSOR_RAW])
+    ws_wraw=ensure_tab(WEATHER_RAW, REQUIRED_SHEETS[WEATHER_RAW])
     if not ws_cal.get_all_records():
         for stg in ["initial","mid","late"]:
             ws_cal.append_row([stg,0.0,1.0,0.03,0.03,datetime.utcnow().isoformat()])
     if not ws_meta.get_all_records():
-        ws_meta.append_row(["app_version","3.7 (Auto)"]); ws_meta.append_row(["last_update", str(date.today())]); ws_meta.append_row(["researcher","Patrick"])
-    return ws_main, ws_weather, ws_cal, ws_meta
+        ws_meta.append_row(["app_version","3.8 (Auto-Compute)"]); ws_meta.append_row(["last_update", str(date.today())]); ws_meta.append_row(["researcher","Patrick"])
+    return ws_main, ws_weather, ws_cal, ws_meta, ws_sraw, ws_wraw
 
 def sheet_to_df(ws):
     data = ws.get_all_records()
@@ -151,11 +166,11 @@ FC = st.sidebar.number_input("Field Capacity (VWC %)", value=DEFAULTS["FC"], ste
 PWP = st.sidebar.number_input("Permanent Wilting Point (VWC %)", value=DEFAULTS["PWP"], step=0.5)
 MAD = st.sidebar.number_input("Management Allowable Depletion (0-1)", value=DEFAULTS["MAD"], step=0.05, min_value=0.05, max_value=0.6)
 EFF = st.sidebar.number_input("Irrigation Efficiency (0-1)", value=DEFAULTS["EFFICIENCY"], step=0.05, min_value=0.5, max_value=1.0)
-st.sidebar.caption("Plot area fixed at 1.0 m² → 1 mm = 1 L.")
+st.sidebar.caption("Plot area fixed at 1.0 m^2 -> 1 mm = 1 L.")
 
 try:
     client, ss = connect_gsheet()
-    ws_main, ws_weather, ws_cal, ws_meta = ensure_sheet_structure(ss)
+    ws_main, ws_weather, ws_cal, ws_meta, ws_sraw, ws_wraw = ensure_sheet_structure(ss)
     connected = True
 except Exception as e:
     st.error(f"Failed to connect to Google Sheet: {e}")
@@ -178,30 +193,27 @@ with tabs[0]:
                                                 "3":"T3 - NDVI + Weather",
                                                 "4":"T4 - Sensor + NDVI + Weather"}[k])
 
-    up_w = st.file_uploader("Weather CSV (hourly): timestamp, Tair_C, RH, wind_ms, solar_MJ_m2, P_kPa, (optional) rain_mm", type=["csv"], key="wx")
-    up_s = st.file_uploader("Sensor CSV (hourly): timestamp, vwc (%)", type=["csv"], key="sens") if treatment in ("2","4") else None
+    st.markdown("**Upload Weather CSV (hourly)** — columns: timestamp, Tair_C, RH, wind_ms, solar_MJ_m2, P_kPa, (optional) rain_mm")
+    up_w = st.file_uploader("Weather CSV", type=["csv"], key="wx")
+    up_s = st.file_uploader("Sensor CSV (hourly)", type=["csv"], key="sens") if treatment in ("2","4") else None
+
     ndvi_rgn = ndvi_ocn = None
     if treatment in ("3","4"):
         c1,c2 = st.columns(2)
         with c1: ndvi_rgn = st.number_input("NDVI_RGN", value=0.0, step=0.01, min_value=0.0, max_value=1.0)
         with c2: ndvi_ocn = st.number_input("NDVI_OCN", value=0.0, step=0.01, min_value=0.0, max_value=1.0)
+
     forecast_rain = st.number_input("Rain forecast next 24h (mm)", value=0.0, step=0.5) if treatment in ("2","3","4") else 0.0
 
     logic_boxes = {
-        "1": "💧 Logic: Manual entry only. You record applied liters. No automatic computation.",
-        "2": "💧 Logic: 1) ETo from weather CSV, 2) Predawn VWC (4–6 AM) from sensor CSV, "
-             "3) ETc = ETo × Kc × PWRF × Ks_soil, 4) If VWC ≤ trigger or depletion ≥ RAW → Irrigate. "
-             "Rain skip if forecast ≥ 10 mm.",
-        "3": "🌱 Logic: 1) ETo from weather CSV, 2) Harmonize NDVI_RGN + NDVI_OCN → nVI, "
-             "3) ETc = ETo × Kc × PWRF × Kndvi, 4) If nVI < 0.55 or depletion ≥ RAW → Irrigate. "
-             "Rain skip if forecast ≥ 10 mm.",
-        "4": "🌿 Logic: 1) ETo from weather CSV, 2) Harmonize NDVI → nVI, 3) Predawn VWC from sensor CSV, "
-             "4) ETc = ETo × Kc × PWRF × Kndvi × Ks_soil, 5) Irrigate if any trigger true. "
-             "Rain skip if forecast ≥ 10 mm."
+        "1": "Manual log only (you record water applied).",
+        "2": "ETo from weather CSV + Predawn VWC (4-6 AM) -> Ks_soil. ETc = ETo*Kc*PWRF*Ks_soil. Triggers: VWC<=threshold or depletion>=RAW. Rain>=10mm -> Skip.",
+        "3": "ETo + Harmonized NDVI (RGN+OCN)->Kndvi. ETc = ETo*Kc*PWRF*Kndvi. Triggers: nVI<0.55 or depletion>=RAW. Rain>=10mm -> Skip.",
+        "4": "ETo + NDVI fusion + VWC -> Kndvi*Ks_soil. Triggers: any of VWC threshold, nVI<0.55, depletion>=RAW. Rain>=10mm -> Skip."
     }
     st.markdown(f"<div class='info-box'>{logic_boxes[treatment]}</div>", unsafe_allow_html=True)
 
-    # WEATHER handling
+    # WEATHER handling (compute ETo) + save RAW
     eto_yday = 0.0; eto_next = 0.0; rain_yday = 0.0
     if up_w is not None:
         wx = pd.read_csv(up_w)
@@ -220,18 +232,43 @@ with tabs[0]:
         c_Rs = find_col(wx, ["solar_MJ_m2","Rs","Solar","Solar_Radiation"])
         c_P = find_col(wx, ["P_kPa","Pressure_kPa","Pressure"])
         c_rain = find_col(wx, ["rain_mm","rain","precipitation"])
+
         ok = all([c_ts, c_T, c_RH, c_u2, c_Rs, c_P])
         if not ok:
             st.error("Weather CSV missing columns. Need: timestamp, Tair_C, RH, wind_ms, solar_MJ_m2, P_kPa.")
         else:
             wx[c_ts] = pd.to_datetime(wx[c_ts], errors="coerce")
             wx = wx.dropna(subset=[c_ts]).sort_values(c_ts).reset_index(drop=True)
+
+            # save RAW rows
+            if connected:
+                try:
+                    existing = sheet_to_df(ws_wraw)
+                    have = set(pd.to_datetime(existing["timestamp"], errors="coerce").astype(str)) if not existing.empty else set()
+                    rows = []
+                    for _,r in wx.iterrows():
+                        ts = pd.to_datetime(r[c_ts]).astype("datetime64[ns]").isoformat() if not pd.isna(r[c_ts]) else None
+                        if ts and ts not in have:
+                            rows.append({
+                                "timestamp": ts,
+                                "Tair_C": r.get(c_T, ""), "RH": r.get(c_RH, ""),
+                                "wind_ms": r.get(c_u2, ""), "solar_MJ_m2": r.get(c_Rs, ""),
+                                "P_kPa": r.get(c_P, ""), "rain_mm": r.get(c_rain, 0.0) if c_rain else 0.0
+                            })
+                    if rows:
+                        for rr in rows: append_row(ws_wraw, rr, REQUIRED_SHEETS[WEATHER_RAW])
+                        st.success(f"Saved {len(rows)} weather RAW rows to Google Sheet.")
+                except Exception as e:
+                    st.warning(f"Could not save weather RAW rows: {e}")
+
+            # compute ETo
             T = pd.to_numeric(wx[c_T], errors="coerce")
             RH = pd.to_numeric(wx[c_RH], errors="coerce")
             u2 = pd.to_numeric(wx[c_u2], errors="coerce")
             Rs = pd.to_numeric(wx[c_Rs], errors="coerce")
-            P = pd.to_numeric(wx[c_P], errors="coerce"); 
+            P = pd.to_numeric(wx[c_P], errors="coerce")
             if P.mean()>20: P = P*0.1
+
             eto_hourly_vals = []
             for i in range(len(wx)):
                 eto_h = (0.0 if pd.isna(T.iloc[i]) or pd.isna(RH.iloc[i]) or pd.isna(Rs.iloc[i]) or pd.isna(u2.iloc[i]) or pd.isna(P.iloc[i])
@@ -241,7 +278,6 @@ with tabs[0]:
             wx["date"] = pd.to_datetime(wx[c_ts]).dt.date
             daily = wx.groupby("date", as_index=False)["ETo_hourly_mm"].sum().rename(columns={"ETo_hourly_mm":"ETo_mm"})
             if c_rain:
-                rain_series = pd.to_numeric(wx[c_rain], errors="coerce").fillna(0.0)
                 rain_daily = wx.groupby("date", as_index=False)[c_rain].sum().rename(columns={c_rain:"rain_mm"})
                 daily = daily.merge(rain_daily, on="date", how="left")
             else:
@@ -261,12 +297,14 @@ with tabs[0]:
             if connected:
                 ex = sheet_to_df(ws_weather)
                 ex_dates = set(pd.to_datetime(ex["date"], errors="coerce").dt.date) if not ex.empty and "date" in ex.columns else set()
+                added=0
                 for _,r in daily.iterrows():
                     if r["date"] not in ex_dates:
                         append_row(ws_weather, {"date": str(r["date"]), "ETo_mm": float(r["ETo_mm"]), "rain_mm": float(r["rain_mm"])}, ["date","ETo_mm","rain_mm"])
-                st.success("Weather_ETo updated with computed ETo.")
+                        added+=1
+                if added: st.success(f"Weather_ETo updated with {added} daily rows.")
 
-    # SENSOR handling
+    # SENSOR handling (predawn) + save RAW
     vwc_predawn = None
     if up_s is not None:
         df = pd.read_csv(up_s)
@@ -281,20 +319,29 @@ with tabs[0]:
         else:
             df[ts_col] = pd.to_datetime(df[ts_col], errors="coerce")
             df = df.dropna(subset=[ts_col]).set_index(ts_col).sort_index()
-            vwc_col = None
-            for cand in ["vwc","soil_moisture","soil_vwc"]:
-                for c in df.columns:
-                    if c.lower()==cand: vwc_col=c; break
-                if vwc_col: break
-            if vwc_col is None:
-                st.error("Sensor CSV missing a VWC column (e.g., 'vwc').")
+            if connected:
+                try:
+                    existing = sheet_to_df(ws_sraw)
+                    have = set(pd.to_datetime(existing["timestamp"], errors="coerce").astype(str)) if not existing.empty else set()
+                    cnt=0
+                    if "vwc" in df.columns:
+                        for ts,val in df["vwc"].items():
+                            ts_iso = pd.to_datetime(ts).isoformat()
+                            if ts_iso not in have:
+                                append_row(ws_sraw, {"timestamp": ts_iso, "vwc": float(val)}, REQUIRED_SHEETS[SENSOR_RAW])
+                                cnt+=1
+                    if cnt: st.success(f"Saved {cnt} sensor RAW rows to Google Sheet.")
+                except Exception as e:
+                    st.warning(f"Could not save sensor RAW rows: {e}")
+            if "vwc" not in df.columns:
+                st.error("Sensor CSV missing a VWC column named 'vwc'.")
             else:
-                predawn = df.between_time("04:00","06:00")[vwc_col]
+                predawn = df.between_time("04:00","06:00")["vwc"]
                 if not predawn.empty:
                     vwc_predawn = float(predawn.mean())
                     st.metric("Predawn VWC (%)", f"{vwc_predawn:.1f}")
 
-    # NDVI fusion (T3/T4)
+    # NDVI
     nvi = None; Kndvi = 1.0
     if treatment in ("3","4"):
         a=b=1.0; sr=so=0.03; a=0.0
@@ -309,9 +356,35 @@ with tabs[0]:
             except: pass
         ndvi_r = ndvi_rgn if ndvi_rgn and ndvi_rgn>0 else None
         ndvi_o = ndvi_ocn if ndvi_ocn and ndvi_ocn>0 else None
-        nvi = ndvi_fuse(ndvi_r, ndvi_o, a=a,b=b,sigma_rgn=sr,sigma_ocn=so)
+        def ndvi_fuse_local(r, o, a, b, sr, so):
+            r = None if r is None or r<=0 else float(r)
+            o = None if o is None or o<=0 else float(o)
+            ocn_rg = a + b*o if o is not None else None
+            if r is not None and ocn_rg is not None:
+                w_r = 1.0/(sr**2); w_o = 1.0/(so**2)
+                s = max(w_r + w_o, 1e-6); w_r/=s; w_o/=s
+                return float(np.clip(w_r*r + w_o*ocn_rg, 0, 1))
+            elif r is not None: return float(np.clip(r,0,1))
+            elif ocn_rg is not None: return float(np.clip(ocn_rg,0,1))
+            else: return None
+        nvi = ndvi_fuse_local(ndvi_r, ndvi_o, a,b,sr,so)
         if nvi is not None: st.metric("Harmonized NDVI (nVI)", f"{nvi:.3f}")
-        Kndvi = ndvi_to_canopy_factor(nvi)
+        Kndvi = float(np.clip(0.50 + 0.50*(nvi if nvi is not None else 0), 0.60, 1.10)) if nvi is not None else 1.0
+
+    # Pull last depletion
+    def get_last_depletion(ws_main, treatment_code):
+        try:
+            dfm = sheet_to_df(ws_main)
+            if dfm.empty: return None
+            dfm["timestamp"] = pd.to_datetime(dfm["timestamp"], errors="coerce")
+            dfm = dfm[dfm["treatment"]==treatment_code].sort_values("timestamp")
+            if dfm.empty: return None
+            last = dfm.iloc[-1]
+            return float(last.get("depletion_start", np.nan)) if pd.notna(last.get("depletion_start", np.nan)) else None
+        except Exception:
+            return None
+
+    last_dep = get_last_depletion(ws_main, f"T{treatment}") if connected else None
 
     # Decision calculation
     eff_rain_y = 0.8*(rain_yday if up_w is not None else 0.0)
@@ -320,10 +393,11 @@ with tabs[0]:
     if treatment in ("2","4") and vwc_predawn is not None and FC>0:
         Ks_soil = float(np.clip(vwc_predawn/FC, 0.3, 1.0))
 
-    ETc_yday = (eto_yday * kc_base * Kndvi * params["base_ETc_adj"] * (Ks_soil if treatment in ("2","4") else 1.0))
-    ETc_next = (eto_next * kc_base * Kndvi * params["base_ETc_adj"] * (Ks_soil if treatment in ("2","4") else 1.0))
+    Kndvi_used = Kndvi if treatment in ("3","4") else 1.0
+    ETc_yday = (eto_yday * kc_base * Kndvi_used * params["base_ETc_adj"] * (Ks_soil if treatment in ("2","4") else 1.0))
+    ETc_next = (eto_next * kc_base * Kndvi_used * params["base_ETc_adj"] * (Ks_soil if treatment in ("2","4") else 1.0))
 
-    depletion_prev = st.number_input("Depletion_prev (mm)", value=float(RAW/2.0), step=0.5)
+    depletion_prev = last_dep if (last_dep is not None and last_dep>=0) else (0.5*RAW)
     depletion_start = max(0.0, depletion_prev + ETc_yday - eff_rain_y)
     need_mm = min(max(0.0, depletion_start + ETc_next - eff_rain_next), TAW)
     suggested_liters = need_mm * AREA / max(DEFAULTS["EFFICIENCY"], 1e-6)
@@ -331,24 +405,31 @@ with tabs[0]:
     if treatment == "1":
         st.info("T1 - Manual logging only.")
         decision = "Manual entry"
-    elif treatment == "2":
-        trigger = ((vwc_predawn is not None and vwc_predawn <= (FC - MAD*(FC-PWP))) or (depletion_start >= RAW))
-        decision = "Skip (Rain forecast)" if (forecast_rain >= RAIN_SKIP_MM) else ("Irrigate" if trigger and suggested_liters>=0.5 else "Skip")
-    elif treatment == "3":
-        trigger = ((nvi is not None and nvi < 0.55) or (depletion_start >= RAW))
-        decision = "Skip (Rain forecast)" if (forecast_rain >= RAIN_SKIP_MM) else ("Irrigate" if trigger and suggested_liters>=0.5 else "Skip")
+        auto_applied = 0.0
     else:
-        trigger = ((vwc_predawn is not None and vwc_predawn <= (FC - MAD*(FC-PWP))) or (depletion_start >= RAW) or (nvi is not None and nvi < 0.55))
-        decision = "Skip (Rain forecast)" if (forecast_rain >= RAIN_SKIP_MM) else ("Irrigate" if trigger and suggested_liters>=0.5 else "Skip")
-
-    if treatment != "1":
-        if "Irrigate" in decision:
-            st.success(f"Decision: {decision} — Apply **{suggested_liters:.2f} L** per 1 m² plot")
+        if forecast_rain >= RAIN_SKIP_MM:
+            decision = "Skip (Rain forecast)"
+            auto_applied = 0.0
         else:
-            st.warning(f"Decision: {decision} — Suggested (calc) = {suggested_liters:.2f} L")
+            if treatment == "2":
+                trigger = ((vwc_predawn is not None and vwc_predawn <= (FC - MAD*(FC-PWP))) or (depletion_start >= RAW))
+            elif treatment == "3":
+                trigger = ((nvi is not None and nvi < 0.55) or (depletion_start >= RAW))
+            else:
+                trigger = ((vwc_predawn is not None and vwc_predawn <= (FC - MAD*(FC-PWP))) or (depletion_start >= RAW) or (nvi is not None and nvi < 0.55))
+            if trigger and suggested_liters >= 0.5:
+                decision = "Irrigate"
+                auto_applied = suggested_liters
+            else:
+                decision = "Skip"
+                auto_applied = 0.0
 
-    applied_liters = st.number_input("Applied liters (today)", value=0.0, step=0.1)
+        if decision == "Irrigate":
+            st.success(f"Decision: {decision} - Apply {suggested_liters:.2f} L per 1 m^2 plot")
+        else:
+            st.warning(f"Decision: {decision} - Suggested (calc) = {suggested_liters:.2f} L")
 
+    # Save
     if connected and st.button("Save to Google Sheet"):
         headers = REQUIRED_SHEETS["MAIN"]
         row = {
@@ -356,9 +437,7 @@ with tabs[0]:
             "treatment": f"T{treatment}",
             "crop": crop_choice, "stage": stage,
             "eto_yday": round(eto_yday,3), "eto_next": round(eto_next,3),
-            "kc": round(kc_base,3), "Kndvi": round(ndvi_to_canopy_factor(nvi),3) if treatment in ("3","4") else round(1.0,3),
-            "PWRF": round(params['base_ETc_adj'],3),
-            "Ks_soil": round(Ks_soil,3),
+            "kc": round(kc_base,3), "Kndvi": round(Kndvi_used,3), "PWRF": round(params['base_ETc_adj'],3), "Ks_soil": round(Ks_soil,3),
             "ETc_yday": round(ETc_yday,3), "ETc_next": round(ETc_next,3),
             "rain_yday": round(rain_yday,3), "forecast_rain": round(forecast_rain,3),
             "eff_rain_y": round(eff_rain_y,3), "eff_rain_next": round(eff_rain_next,3),
@@ -370,7 +449,7 @@ with tabs[0]:
             "depletion_prev": round(depletion_prev,2), "depletion_start": round(depletion_start,2),
             "need_mm": round(need_mm,2),
             "suggested_liters": round(suggested_liters,2),
-            "applied_liters": round(applied_liters,2),
+            "applied_liters": round(auto_applied,2),
             "decision": decision
         }
         append_row(ws_main, row, headers); st.success("Saved ✅")
